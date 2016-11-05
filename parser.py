@@ -64,7 +64,7 @@ class Parser(object):
     def fieldParse(self,ptr):   # assumption: X.table_str[l_ptr] != { ";" | "{" }
         l_ptr = ptr
         string = self.table_str
-        while (l_ptr < self.len and (string[l_ptr] == " " or string[l_ptr] == "{" or string[l_ptr] == ";")):
+        while (l_ptr < self.len and (string[l_ptr] == " " or string[l_ptr] == ";")):
             l_ptr += 1
             pass
         if (l_ptr == self.len or string[l_ptr] == "}"):
@@ -79,9 +79,13 @@ class Parser(object):
             if (string[rl_ptr] == "'" or string[rl_ptr] == '"'):
                 r_exp, rr_ptr = self.quoteExp(rl_ptr)
                 pass
-            else:
+            elif (string[rl_ptr] != "{"):
                 r_exp, rr_ptr = self.nameExp(rl_ptr)
                 pass
+            else:
+                tmp_parser = Parser(string)
+                tmp_parser.fieldlistParse(rl_ptr,prefix,table_name)
+
             # print(l_exp,r_exp)
         elif (string[l_ptr] == "'" or string[l_ptr] == '"'):
             r_exp, rr_ptr = self.quoteExp(l_ptr)
@@ -104,8 +108,12 @@ class Parser(object):
                 if (string[rl_ptr] == "'" or string[rl_ptr] == '"'):
                     r_exp, rr_ptr = self.quoteExp(rl_ptr)
                     pass
-                else:
+                elif (string[rl_ptr] != "{"):
                     r_exp, rr_ptr = self.nameExp(rl_ptr)
+                    pass
+                else:
+                    tmp_parser = Parser(string)
+                    tmp_parser.fieldlistParse(rl_ptr,prefix,table_name)
                     pass
             pass
         field = l_exp + " = " + r_exp
@@ -128,9 +136,9 @@ class Parser(object):
             pass
         pass
 
-    def tableConstructor(self):
+    def tableConstructor(self,ptr,local_table):
         self.table = []
-        table_name, rl_ptr = self.nameExp(0)
+        table_name, rl_ptr = self.nameExp(ptr)
         local_table = "t"
         string = self.table_str
         while (rl_ptr < self.len and (string[rl_ptr] == " " or string[rl_ptr] == "=")):
@@ -141,4 +149,190 @@ class Parser(object):
         self.fieldlistParse(rl_ptr, local_table)
         self.table.append("%s = %s" % (table_name, local_table))
         self.table.append("end")
-        pass
+        return self.table, 
+
+class SimpleParser(object):
+    fieldsep = (';',',')
+    tablesep = ('{','}')
+    square = ("[","]")
+    quote = ("'",'"')
+    blank = (' ')
+    equal = ('=')
+    prefixset = ('P','Q')
+    
+    def __init__(self,text):
+        self.text = text
+        self.len = len(text)
+        self.table = []
+        self.count = 0
+
+    @staticmethod
+    def isInSet(char,someset):
+        for item in someset:
+            if (item == char):
+                return True
+        return False
+
+    def countExp(self):
+        self.count += 1
+        return "[%d]" % (self.count)
+
+    def quoteParse(self,ptr):
+        txt = self.text
+        l_ptr = ptr
+        l_quote = txt[l_ptr]
+        ptr += 1
+        char = txt[ptr]
+        while True:
+            if (char == l_quote and txt[ptr-1] != "\\"):
+                break
+            ptr += 1
+            if (ptr == self.len):
+                pass
+            char = txt[ptr]
+        r_ptr = ptr + 1
+        return l_ptr, r_ptr
+
+    def expParse(self,ptr):
+        txt = self.text
+        l_ptr = ptr
+        ptr += 1
+        char = txt[ptr]
+        sets = blank + square[1]
+        while (not isInSet(char,sets)):
+            ptr += 1
+            if (ptr == self.len):
+                pass
+            char = txt[ptr]
+        r_ptr = ptr
+        return l_ptr, r_ptr
+
+    def quoteAexpParse(self,ptr):
+        txt = self.text
+        ptr += 1
+        char = txt[ptr]
+        while (isInSet(char,blank)):
+            ptr += 1
+            if (ptr == self.len):
+                pass
+            char = txt[ptr]
+        if (isInSet(char,quote)):
+            l_ptr, r_ptr = self.quoteParse(ptr)
+        else:
+            l_ptr, r_ptr = self.expParse(ptr)
+    return l_ptr, r_ptr
+
+    def isChildTable(self,ptr):
+        txt = self.text
+        char = txt[ptr]
+        while (isInSet(char,blank)):
+            ptr += 1
+            if (ptr == self.len):
+                pass
+            char = txt[ptr]
+        if (isInSet(char,tablesep)):
+            if (char == tablesep[0]):
+                return True, ptr
+            else:
+                pass    # error handle
+        else:
+            return False, ptr
+
+    def rightParse(self,ptr,prefixindex,l_exp):
+        flag, ptr = self.isChildTable(ptr)
+        if flag:    # make child table
+            newindex = 1 - prefixindex
+            self.table.append("do")
+            self.table.append("local %s = {}" % (prefixset[newindex]))
+            tmp = SimpleParser(txt[ptr:])       # Assumption: new object.text start with a tablesep
+            ptr = tmp.fieldlistParse(newindex)
+            self.table += tmp.table
+            r_exp = prefixset[newindex]
+            self.table.append("%s = %s" % (l_exp,r_exp))
+            self.table.append("end")
+            ptr = self.expectSymbol(ptr+1,endset)
+        else:
+            l_ptr, r_ptr = self.quoteAexpParse(ptr)
+            r_exp = txt[l_ptr,r_ptr]
+            self.table.append("%s = %s" % (l_exp,r_exp))
+            ptr = self.expectSymbol(r_ptr,endset)         # Assumption: each field endded with a fieldsep or tablesep
+        return ptr
+
+    def expectSymbol(self,ptr,symset,throw_error=True):
+        txt = self.text
+        char = txt[ptr]
+        while (isInSet(char,blank)):
+            ptr += 1
+            if (ptr == self.len):
+                pass
+            char = txt[ptr]
+        if (not isInSet(char,symset) and throw_error):
+            pass
+        return ptr
+
+    def fieldParse(self,ptr,prefixindex):
+        txt = self.text
+        char = txt[ptr]
+        sets = fieldsep + blank
+        while (isInSet(char,sets)):
+            ptr += 1
+            if (ptr == self.len):
+                pass
+            char = txt[ptr]
+        if (char == tablesep[1]):
+            return ptr
+
+        endset = fieldsep + tablesep
+        if (char == tablesep[0]):
+            l_exp = prefixset[prefixindex] + self.countExp()
+            ptr = self.rightParse(ptr,prefixindex,l_exp)
+            return ptr 
+        elif (char == square[0]):
+            l_ptr, r_ptr = self.quoteAexpParse(ptr)
+            l_exp = "%s[%s]" % (prefixset[prefixindex],txt[l_ptr,r_ptr])
+
+            ptr = self.expectSymbol(r_ptr,square)
+            ptr = self.expectSymbol(ptr+1,equal)
+
+            ptr = self.rightParse(ptr+1,prefixindex,l_exp)
+            return ptr
+        else:
+            l_ptr, r_ptr = self.quoteAexpParse(ptr)
+            ptr = self.expectSymbol(r_ptr,equal,throw_error=False)
+            if (not isInSet(txt[ptr],equal)):
+                if (isInSet(txt[ptr],endset)):            # Assumption: each field endded with a fieldsep or tablesep
+                    r_exp = txt[l_ptr,r_ptr]
+                    l_exp = prefixset[prefixindex] + self.countExp()
+                    self.table.append("%s = %s" % (l_exp,r_exp))
+                    return ptr
+                else:
+                    pass
+            else:
+                l_exp = "%s[%s]" % (prefixset[prefixindex],txt[l_ptr,r_ptr])
+
+                ptr = self.rightParse(ptr+1,prefixindex,l_exp)
+                return ptr
+    
+    def fieldlistParse(self,prefixindex):
+        self.table = []
+        txt = self.text
+        ptr = self.fieldParse(1,prefixindex)                # fieldParse doesn't pass the first "{"
+        char = txt[ptr]
+        while (isInSet(char,fieldsep)):
+            ptr = self.fieldParse(ptr,prefixindex)
+            char = txt[ptr]
+        if (not isInSet(char,tablesep)):
+            pass
+        else:
+            return ptr      # txt[ptr] == "}"
+
+    def tableConstructor(self):
+        txt = self.text
+        prefixindex = 0
+        l_ptr, r_ptr = self.expParse(0)
+        l_exp = txt[l_ptr,r_ptr]
+        ptr = self.expectSymbol(r_ptr,equal)
+        ptr = self.rightParse(ptr+1,prefixindex,l_exp)
+        return True
+
+
