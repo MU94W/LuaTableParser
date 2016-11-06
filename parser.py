@@ -307,7 +307,7 @@ class SimpleParser(object):
                 else:
                     pass
             else:
-                l_exp = "%s[%s]" % (prefixset[prefixindex],txt[l_ptr:r_ptr])
+                l_exp = '%s["%s"]' % (prefixset[prefixindex],txt[l_ptr:r_ptr])
 
                 ptr = self.rightParse(ptr+1,prefixindex,l_exp)
                 return ptr
